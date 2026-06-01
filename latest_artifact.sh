@@ -17,9 +17,10 @@ workflows_url="https://api.github.com/repos/${repository}/actions/workflows"
 workflow_page=1
 workflow_count=0
 workflow_ids=()
+max_pages=5
 
 while true; do
-  workflows=$(curl -sS -H "Authorization: Bearer ${github_token}" "${workflows_url}?page=${workflow_page}")
+  workflows=$(curl -sS -H "Authorization: Bearer ${github_token}" "${workflows_url}?per_page=100&page=${workflow_page}")
 
   workflow_ids+=($(
     jq \
@@ -30,7 +31,7 @@ while true; do
   (( workflow_count += $(jq '.workflows | length' <<< ${workflows}) ))
   (( ++workflow_page ))
 
-  if [[ $workflow_count -ge $(jq .total_count <<< ${workflows}) ]]; then
+  if [[ $workflow_count -ge $(jq .total_count <<< ${workflows}) ]] || [[ $workflow_page -gt $max_pages ]]; then
     break
   fi
 done
@@ -43,10 +44,27 @@ latest_workflow_id=${workflow_ids[${#workflow_ids[@]}-1]}
 echoerr "Latest workflow ID: ${latest_workflow_id}"
 
 workflow_runs_url="https://api.github.com/repos/${repository}/actions/workflows/${latest_workflow_id}/runs?status=success&branch=${branch_name}"
-workflow_runs=$(curl -sS -H "Authorization: Bearer ${github_token}" "${workflow_runs_url}")
+
+runs_page=1
+runs_count=0
+all_workflow_runs='[]'
+
+while true; do
+  workflow_runs=$(curl -sS -H "Authorization: Bearer ${github_token}" "${workflow_runs_url}&per_page=100&page=${runs_page}")
+
+  all_workflow_runs=$(jq -s '.[0] + [.[1].workflow_runs[]]' <<< "${all_workflow_runs} ${workflow_runs}")
+
+  (( runs_count += $(jq '.workflow_runs | length' <<< ${workflow_runs}) ))
+  (( ++runs_page ))
+
+  if [[ $runs_count -ge $(jq .total_count <<< ${workflow_runs}) ]] || [[ $runs_page -gt $max_pages ]]; then
+    break
+  fi
+done
+
 latest_workflow_run_id=$(jq \
 		--argjson pr_number "${pr_number}" \
-		'([.workflow_runs[] | select(.pull_requests | any(.number == $pr_number))] | max_by(.run_number)) | .id' <<< ${workflow_runs} || echo "ERROR")
+		'([.[] | select(.pull_requests | any(.number == $pr_number))] | max_by(.run_number)) | .id' <<< ${all_workflow_runs} || echo "ERROR")
 
 if [ "${latest_workflow_run_id}" = "ERROR" ]; then
 	echoerr 'Failed to parse GitHub response with jq:'
@@ -62,7 +80,7 @@ fi
 echoerr "Latest workflow run ID: ${latest_workflow_run_id}"
 
 artifacts_url="https://api.github.com/repos/${repository}/actions/runs/${latest_workflow_run_id}/artifacts"
-artifacts=$(curl -sS -H "Authorization: Bearer ${github_token}" "${artifacts_url}")
+artifacts=$(curl -sS -H "Authorization: Bearer ${github_token}" "${artifacts_url}?per_page=100")
 latest_artifact_id=$(echo ${artifacts} \
 	| jq \
 		--arg artifact_name "$artifact_name" \
