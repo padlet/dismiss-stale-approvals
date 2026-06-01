@@ -67,21 +67,19 @@ runs:
         git remote add origin https://oauth2:"${{ inputs.github-token }}"@github.com/"${{ github.repository }}".git
         git fetch -q origin --depth="${{ inputs.fetch-depth }}" "${{ env.PREV_BASE_SHA }}" "${{ env.PREV_HEAD_SHA }}" "${{ env.BASE_SHA }}" "${{ env.HEAD_SHA }}"
 
-        PREV_MERGE_BASE=$(git merge-base "${{ env.PREV_BASE_SHA }}" "${{ env.PREV_HEAD_SHA }}")
-        MERGE_BASE=$(git merge-base "${{ env.BASE_SHA }}" "${{ env.HEAD_SHA }}")
-        echo "Merge bases: $PREV_MERGE_BASE $MERGE_BASE"
+        extract_changes() {
+          git diff "$1".."$2" | grep -E '^[+-]'
+        }
 
-        RANGE_DIFF=$(git range-diff "$PREV_MERGE_BASE".."${{ env.PREV_HEAD_SHA }}" "$MERGE_BASE".."${{ env.HEAD_SHA }}")
-        HAS_CHANGES=$(echo "$RANGE_DIFF" | awk '{print $3}' | grep -vq '^=$'; echo $?)
+        PREV_DIFF=$(extract_changes "${{ env.PREV_BASE_SHA }}" "${{ env.PREV_HEAD_SHA }}")
+        CURR_DIFF=$(extract_changes "${{ env.BASE_SHA }}" "${{ env.HEAD_SHA }}")
 
-        if [ "$HAS_CHANGES" == "0" ]; then
-          echo "MATCH=0" >> $GITHUB_ENV
-          echo ::notice:: "PR was modified:
-        $(git range-diff --color=always "$PREV_MERGE_BASE".."${{ env.PREV_HEAD_SHA }}" "$MERGE_BASE".."${{ env.HEAD_SHA }}")"
-        else
+        if [ "$PREV_DIFF" = "$CURR_DIFF" ]; then
           echo "MATCH=1" >> $GITHUB_ENV
-          echo "PR was not modified, range diff for debugging:"
-          echo "$RANGE_DIFF"
+          echo "PR diff unchanged (base: ${{ env.PREV_BASE_SHA }} -> ${{ env.BASE_SHA }}, head: ${{ env.PREV_HEAD_SHA }} -> ${{ env.HEAD_SHA }})"
+        else
+          echo "MATCH=0" >> $GITHUB_ENV
+          echo ::notice:: "PR diff changed (base: ${{ env.PREV_BASE_SHA }} -> ${{ env.BASE_SHA }}, head: ${{ env.PREV_HEAD_SHA }} -> ${{ env.HEAD_SHA }})"
         fi
 
     - name: Write SHAs to file
@@ -105,7 +103,7 @@ runs:
       shell: bash
       run: |
         if [ "${{ env.MATCH }}" == "0" ]; then
-          DETAILS='See the output of `git range-diff` at '
+          DETAILS='PR diff changed; see action logs at '
         elif [ "${{ env.MATCH }}" == "-1" ]; then
           DETAILS="No previous SHAs found; treated as if diff has changed at "
         else
