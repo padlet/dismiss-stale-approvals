@@ -71,8 +71,12 @@ runs:
           git diff "$1".."$2" | grep -E '^[+-]'
         }
 
-        PREV_DIFF=$(extract_changes "${{ env.PREV_BASE_SHA }}" "${{ env.PREV_HEAD_SHA }}")
-        CURR_DIFF=$(extract_changes "${{ env.BASE_SHA }}" "${{ env.HEAD_SHA }}")
+        PREV_MB=$(git merge-base "${{ env.PREV_BASE_SHA }}" "${{ env.PREV_HEAD_SHA }}")
+        CURR_MB=$(git merge-base "${{ env.BASE_SHA }}" "${{ env.HEAD_SHA }}")
+        echo "Merge bases: $PREV_MB $CURR_MB"
+
+        PREV_DIFF=$(extract_changes "$PREV_MB" "${{ env.PREV_HEAD_SHA }}")
+        CURR_DIFF=$(extract_changes "$CURR_MB" "${{ env.HEAD_SHA }}")
 
         if [ "$PREV_DIFF" = "$CURR_DIFF" ]; then
           echo "MATCH=1" >> $GITHUB_ENV
