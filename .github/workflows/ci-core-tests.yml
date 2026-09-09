@@ -21,3 +21,6 @@ jobs:
 
        - name: Validate syntax
          run: bash -n *.sh
+
+       - name: latest_artifact mocked GitHub responses
+         run: bash test/latest_artifact_test.sh

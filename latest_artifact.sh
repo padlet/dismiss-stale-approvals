@@ -7,47 +7,24 @@ github_token=$1
 repository=$2
 pr_number=$3
 branch_name=$4
-workflow_name=$5
+run_id=$5
 artifact_name=$6
 
 echoerr() { echo "$@" 1>&2; }
 
-workflows_url="https://api.github.com/repos/${repository}/actions/workflows"
-
-workflow_page=1
-workflow_count=0
-workflow_ids=()
 max_pages=5
 
-while true; do
-  workflows=$(curl -sS -H "Authorization: Bearer ${github_token}" "${workflows_url}?per_page=100&page=${workflow_page}")
+current_run_url="https://api.github.com/repos/${repository}/actions/runs/${run_id}"
+current_run=$(curl -sS -H "Authorization: Bearer ${github_token}" "${current_run_url}")
 
-  current_workflow_count=$(jq '.workflows | if type == "array" then length else 0 end' <<< "${workflows}")
-  if [ "${current_workflow_count}" -eq 0 ]; then
-    break
-  fi
+latest_workflow_id=$(jq '.workflow_id' <<< "${current_run}" || echo "ERROR")
 
-  workflow_ids+=($(
-    jq \
-		--arg workflow_name "$workflow_name" \
-		'.workflows[] | select(.name==$workflow_name).id' <<< ${workflows}
-  ))
-
-  total_count=$(jq '.total_count // 0' <<< "${workflows}")
-
-  (( workflow_count += current_workflow_count ))
-  (( ++workflow_page ))
-
-  if [ "${workflow_count}" -ge "${total_count}" ] || [ "${workflow_page}" -gt "${max_pages}" ]; then
-    break
-  fi
-done
-
-if [[ ${#workflow_ids[@]} -eq 0 ]]; then
-  echoerr "No workflow found with name ${workflow_name}"
-  exit 0
+if [ "${latest_workflow_id}" = "ERROR" ] || [ "${latest_workflow_id}" = "null" ]; then
+	echoerr 'Failed to parse GitHub response with jq:'
+	echoerr "(url: ${current_run_url})"
+	echoerr "${current_run}"
+	exit 0
 fi
-latest_workflow_id=${workflow_ids[${#workflow_ids[@]}-1]}
 echoerr "Latest workflow ID: ${latest_workflow_id}"
 
 workflow_runs_url="https://api.github.com/repos/${repository}/actions/workflows/${latest_workflow_id}/runs?status=success&branch=${branch_name}"
